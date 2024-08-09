@@ -1,0 +1,11 @@
+python.exe -m pip install --upgrade pip
+git clone https://github.com/nwojke/deep_sort.git
+pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+pip install opencv-python
+pip install supervision
+pip install deep-sort-realtime
+pip install ultralytics
+pip install numpy
+pip install -U scikit-learn
+pip install filterpy
+pip install scikit-image

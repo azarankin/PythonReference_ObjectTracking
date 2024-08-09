@@ -5,8 +5,14 @@ from time import time
 from ultralytics import YOLO
 
 from supervision.draw.color import ColorPalette
-from supervision import Detections
-from supervision import BoxAnnotator
+#from supervision.tools.detections import Detections, BoxAnnotator
+from supervision import Detections, BoxAnnotator
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
+from sort import Sort
+from deep_sort_realtime.deepsort_tracker import DeepSort
 
 
 class ObjectDetection:
@@ -22,12 +28,12 @@ class ObjectDetection:
         
         self.CLASS_NAMES_DICT = self.model.model.names
     
-        self.box_annotator = BoxAnnotator(color=ColorPalette.default(), thickness=3, text_thickness=3, text_scale=1.5)
+        self.box_annotator = BoxAnnotator(color=ColorPalette(), thickness=3, text_thickness=3, text_scale=1.5)
     
 
     def load_model(self):
        
-        model = YOLO("yolov8m.pt")  # load a pretrained YOLOv8n model
+        model = YOLO("yolov8m.pt")  # load a pretrained YOLOv8m model
         model.fuse()
     
         return model
@@ -40,40 +46,44 @@ class ObjectDetection:
         return results
     
 
-    def plot_bboxes(self, results, frame):
+    def get_results(self, results):
         
         xyxys = []
         confidences = []
         class_ids = []
+        detections_list = []
         
         # Extract detections for person class
         for result in results[0]:
             class_id = result.boxes.cls.cpu().numpy().astype(int)
             
-            if class_id == 0:
+            #if class_id == 0:
                 
-                xyxys.append(result.boxes.xyxy.cpu().numpy())
-                confidences.append(result.boxes.conf.cpu().numpy())
-                class_ids.append(result.boxes.cls.cpu().numpy().astype(int))
+            bbox = result.boxes.xyxy.cpu().numpy()
+            confidence = result.boxes.conf.cpu().numpy()
             
-        
-        # Setup detections for visualization
-        detections = Detections(
-                    xyxy=results[0].boxes.xyxy.cpu().numpy(),
-                    confidence=results[0].boxes.conf.cpu().numpy(),
-                    class_id=results[0].boxes.cls.cpu().numpy().astype(int),
-                    )
-        
+            merged_detection = ([bbox[0][0], bbox[0][1], bbox[0][2]-bbox[0][0], bbox[0][3]-bbox[0][1]], confidence, class_id)
+            
+            detections_list.append(merged_detection)
+            xyxys.append(bbox)
+            confidences.append(confidence)
+            class_ids.append(class_id)
+            
     
-        # Format custom labels
-        self.labels = [f"{self.CLASS_NAMES_DICT[class_id]} {confidence:0.2f}"
-        for _, confidence, class_id, tracker_id
-        in detections]
+        return detections_list
+    
+    
+    def draw_bounding_boxes(self, img, bboxes, ids):
+  
+        for bbox, id_ in zip(bboxes, ids):
         
-        # Annotate and display frame
-        frame = self.box_annotator.annotate(frame=frame, detections=detections, labels=self.labels)
-        
-        return frame
+            #cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            #cv2.putText(frame, self.class_to_label(labels[i]), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            cv2.rectangle(img,(int(bbox[0]), int(bbox[1])),(int(bbox[2]), int(bbox[3])),(0,0,255),2)
+            cv2.putText(img, "ID: " + str(id_), (int(bbox[0]), int(bbox[1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            #cv2.putText(img, "Conf: " + str(int(score * 100)) + "%", (int(bbox[2]-200), int(bbox[1]-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            
+        return img
     
     
     
@@ -81,9 +91,17 @@ class ObjectDetection:
 
         cap = cv2.VideoCapture(self.capture_index)
         assert cap.isOpened()
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-      
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        
+        
+        # SORT
+        #sort = Sort(max_age=30, min_hits=20, iou_threshold=0.5)
+        
+        # DEEPSORT
+        tracker = DeepSort(max_age=5, n_init=10)
+            
+        
         while True:
           
             start_time = time()
@@ -92,7 +110,29 @@ class ObjectDetection:
             assert ret
             
             results = self.predict(frame)
-            frame = self.plot_bboxes(results, frame)
+            detections_list = self.get_results(results)
+            
+        
+            
+            tracks = tracker.update_tracks(detections_list, frame=frame) # bbs expected to be a list of detections, each in tuples of ( [left,top,w,h], confidence, detection_class )
+            
+            
+            #  Get the bboxes from the tracks in the tracker
+            detections_list = []
+            ids = []
+            for track in tracks:
+                if not track.is_confirmed():
+                    continue
+                ids.append(track.track_id)
+                detections_list.append(track.to_ltrb().tolist())
+                
+                track_id = track.track_id
+                bbox = track.to_ltrb()
+                
+                cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])),(int(bbox[2]), int(bbox[3])),(0,0,255),2)
+                cv2.putText(frame, "ID: " + str(track_id), (int(bbox[0]), int(bbox[1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            
+            
             
             end_time = time()
             fps = 1/np.round(end_time - start_time, 2)
@@ -112,3 +152,4 @@ class ObjectDetection:
     
 detector = ObjectDetection(capture_index=2)
 detector()
+

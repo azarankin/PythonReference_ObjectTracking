@@ -5,7 +5,8 @@ from time import time
 from ultralytics import YOLO
 
 from supervision.draw.color import ColorPalette
-from supervision.tools.detections import Detections, BoxAnnotator
+#from supervision.tools.detections import Detections, BoxAnnotator
+from supervision import Detections, BoxAnnotator
 
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"

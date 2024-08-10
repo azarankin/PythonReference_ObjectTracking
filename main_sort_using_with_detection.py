@@ -27,13 +27,15 @@ class ObjectDetection:
         self.model = self.load_model()
         
         self.CLASS_NAMES_DICT = self.model.model.names
-    
-        self.box_annotator = BoxAnnotator(color=ColorPalette(), thickness=3, text_thickness=3, text_scale=1.5)
+
+        color=ColorPalette(colors=['#FF0000', '#00FF00', '#0000FF'])
+        
+        self.box_annotator = BoxAnnotator(color=color, thickness=3)
     
 
     def load_model(self):
        
-        model = YOLO("yolov8m.pt")  # load a pretrained YOLOv8m model
+        model = YOLO("yolov8m.pt")  # load a pretrained YOLOv8n model
         model.fuse()
     
         return model
@@ -62,7 +64,9 @@ class ObjectDetection:
             bbox = result.boxes.xyxy.cpu().numpy()
             confidence = result.boxes.conf.cpu().numpy()
             
-            merged_detection = ([bbox[0][0], bbox[0][1], bbox[0][2]-bbox[0][0], bbox[0][3]-bbox[0][1]], confidence, class_id)
+            
+            merged_detection = [bbox[0][0], bbox[0][1], bbox[0][2], bbox[0][3], confidence[0]]
+            
             
             detections_list.append(merged_detection)
             xyxys.append(bbox)
@@ -70,7 +74,7 @@ class ObjectDetection:
             class_ids.append(class_id)
             
     
-        return detections_list
+        return np.array(detections_list)
     
     
     def draw_bounding_boxes(self, img, bboxes, ids):
@@ -86,22 +90,20 @@ class ObjectDetection:
         return img
     
     
+        
     
     def __call__(self):
 
         cap = cv2.VideoCapture(self.capture_index)
         assert cap.isOpened()
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         
         
         # SORT
-        #sort = Sort(max_age=30, min_hits=20, iou_threshold=0.5)
+        sort = Sort(max_age=30, min_hits=5, iou_threshold=0.3)
         
-        # DEEPSORT
-        tracker = DeepSort(max_age=5, n_init=10)
-            
-        
+      
         while True:
           
             start_time = time()
@@ -112,26 +114,22 @@ class ObjectDetection:
             results = self.predict(frame)
             detections_list = self.get_results(results)
             
+            
+            boxes = np.empty((0, 5))
+            
+            # SORT Tracking
+            if len(detections_list) == 0:
+                detections_list = np.empty((0, 5))
         
             
-            tracks = tracker.update_tracks(detections_list, frame=frame) # bbs expected to be a list of detections, each in tuples of ( [left,top,w,h], confidence, detection_class )
-            
-            
-            #  Get the bboxes from the tracks in the tracker
-            detections_list = []
-            ids = []
-            for track in tracks:
-                if not track.is_confirmed():
-                    continue
-                ids.append(track.track_id)
-                detections_list.append(track.to_ltrb().tolist())
+            res = sort.update(detections_list)
                 
-                track_id = track.track_id
-                bbox = track.to_ltrb()
-                
-                cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])),(int(bbox[2]), int(bbox[3])),(0,0,255),2)
-                cv2.putText(frame, "ID: " + str(track_id), (int(bbox[0]), int(bbox[1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            boxes_track = res[:,:-1]
+            boxes_ids = res[:,-1].astype(int)
             
+        
+            frame = self.draw_bounding_boxes(frame, boxes_track, boxes_ids)
+                
             
             
             end_time = time()
@@ -150,6 +148,7 @@ class ObjectDetection:
         
         
     
-detector = ObjectDetection(capture_index=2)
+detector = ObjectDetection(capture_index=0)
 detector()
+
 

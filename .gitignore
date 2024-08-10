@@ -2,3 +2,5 @@
 /out
 /venv
 /.venv
+*.pt
+*.pyc
